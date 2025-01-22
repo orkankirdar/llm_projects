@@ -17,7 +17,6 @@ messages = [
     {"role" : "user" , "content" : user_prompt}
 ] 
 
-# Step 3: Call OpenAI
 
 response = openai.chat.completions.create(
     model = "gpt-4o-mini",
