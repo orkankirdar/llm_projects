@@ -1,0 +1,26 @@
+from dotenv import load_dotenv
+from IPython.display import Markdown, display, update_display 
+import ollama      
+from datetime import datetime
+import pytz
+
+MODEL_LLAMA = 'llama3.2'
+
+city = input("Please enter your city:")
+
+tz = pytz.timezone('Europe/Istanbul')  # Örnek olarak İstanbul zaman dilimi
+current_time = datetime.now(tz)
+current_date = current_time.strftime('%Y-%m-%d')
+
+system_prompt = f"You are a weather forecast assistant, so when someone writes to you the city they live in, you should also include today's date, which is {current_date}, and then provide the weather for today and the weather forecast for the next 5 days after today."
+
+user_prompt = f"Please generate the weather forecast for the following given city: {city}"
+
+messages = [
+    {"role": "system", "content": system_prompt},
+    {"role": "user", "content": user_prompt}
+]
+
+response = ollama.chat(model=MODEL_LLAMA, messages=messages)
+reply = response['message']['content']
+display(Markdown(reply))
