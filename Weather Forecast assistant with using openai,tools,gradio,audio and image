@@ -1,0 +1,154 @@
+import os 
+import json 
+from dotenv import load_dotenv
+from openai import OpenAI 
+import gradio as gr
+import base64
+from io import BytesIO
+from PIL import Image 
+from pydub import AudioSegment 
+from pydub.playback import play 
+
+load_dotenv()
+
+openai_api_key = os.getenv('OPENAI_API_KEY')
+if openai_api_key:
+    print(f"Openai api key exists and begins {openai_api_key[:8]}")
+else:
+    print("Openai api key not set")
+
+MODEL = "gpt-4o-mini"
+openai = OpenAI()
+
+system_message = " You are a helpful assistant for an weatherforecast called weatherai"
+system_message += " Give short, courteous answers , no more than 1 senatnce"
+system_message += " Always be accurate. If you don't know the answer, say so." 
+
+weather_forecast = {"copenhagen" : "-3°","paris" : "2°","stockholm" : "-5°","oslo":"-10°"}
+
+def get_weather_forecasting(weather_city):
+    print(f"Tool get_weather_forecast called for {weather_city} ")
+    city = weather_city.lower()
+    return weather_forecast.get(city,"Unknown")
+    
+weather_function = {
+    "name" : "get_weather_forecasting",
+    "description" : "Get the weather degree to the city. Call this whenever you need to know the weather degree, for example when a person asks 'What is the temperature of the this city'",
+    "parameters" : {
+        "type" : "object",
+        "properties" : {
+            "weather_city" : {
+                "type" : "string",
+                "description" : "The city that customer wants to learn the temperature",
+                
+            },     
+         },  
+        "required" : ["weather_city"],
+        "additionalProperties" : False 
+     }
+ }
+
+tools = [{"type" : "function", "function" : weather_function}]
+
+def chat(message,history):
+    messages = [{"role":"system","content":system_message}] + history + [{"role":"user","content":message}]
+    response = openai.chat.completions.create(model = MODEL, messages = messages, tools = tools)
+
+    if response.choices[0].finish_reason == "tool_calls":
+        message = response.choices[0].message 
+        response, city = handle_tool_call(message)
+        messages.append[message]
+        messages.append[response]
+        response = openai.chat.completions.create(model = MODEL, messages = messages)
+    return response.choices[0].message.content
+
+def handle_tool_call(message):
+    tool_call = message.tool_calls[0]
+    arguments = json.loads(tool_call.function.arguments)
+    city = arguments.get('weather_city')
+    temperature = get_weather_forecasting(city)
+    response = {"role": "tool" , "content": json.dumps({"weather_city":city,"temperature":temperature}),"tool_call_id": tool_call.id}
+    
+    return response, city
+
+
+def artist(city):
+    image_response = openai.images.generate(
+        model = "dall-e-3",
+        prompt = f"An image representing a weather in {city} showing the weather for example if its cold show weather in that style and everything unique about {city}, in a realistic style",
+        size = "1024x1024",
+        n = 1,
+        response_format = "b64_json"
+    )
+    image_base64 = image_response.data[0].b64_json
+    image_data = base64.b64decode(image_base64)
+    return Image.open(BytesIO(image_data))
+    
+def talker(message):
+    response = openai.audio.speech.create(
+       model = "tts-1",
+       voice = "onyx",
+       input = message
+    )
+    audio_stream = BytesIO(response.content)
+    audio = AudioSegment.from_file(audio_stream , format = "mp3")
+    play(audio)
+
+
+def chat(history):
+    messages = [{"role":"system","content":system_message}] + history
+    response = openai.chat.completions.create(model = MODEL,messages = messages,tools = tools)
+    image = None
+
+    if response.choices[0].finish_reason=="tool_calls":
+        message = response.choices[0].message
+        response, city = handle_tool_call(message)
+        messages.append(message)
+        messages.append(response)
+        image = artist(city)
+        response = openai.chat.completions.create(model=MODEL, messages=messages)
+
+    reply = response.choices[0].message.content
+    history += [{"role":"assistant", "content":reply}]
+
+    talker(reply)
+
+    return history, image
+
+
+with gr.Blocks() as ui:
+    with gr.Row():
+        chatbot = gr.Chatbot(height=500, type="messages")
+        image_output = gr.Image(height=500)
+    with gr.Row():
+        entry = gr.Textbox(label="Chat with our AI Assistant:")
+    with gr.Row():
+        clear = gr.Button("Clear")
+
+    def do_entry(message, history):
+        history += [{"role":"user", "content":message}]
+        return "", history
+
+    entry.submit(do_entry, inputs=[entry, chatbot], outputs=[entry, chatbot]).then(
+        chat, inputs=chatbot, outputs=[chatbot, image_output]
+    )
+    clear.click(lambda: None, inputs=None, outputs=chatbot, queue=False)
+
+ui.launch(share=True)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
